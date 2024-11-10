@@ -1,0 +1,250 @@
+---
+title: "Feldversuche planen in R"
+author: "Anja Eggert"
+date: "`r Sys.Date()`" 
+editor: visual
+code-fold: false
+toc: true
+format: html
+self-contained: true
+---
+
+# R Bibliotheken
+
+```{r, Bibliotheken, warning=FALSE, message=FALSE, echo=TRUE}
+library(tidyverse)   # Tidy Universum
+library(agricolae)   # Versuchsanlagen erstellen
+library(desplot)     # Feldpläne erstellen
+```
+
+Mit dem R Paket `agricolae` können sehr verschiedene Versuchsanlagen erstellt werden. Auf der Webseite [Experimental Designs with agricolae](#0) gibt es ein Tutorium, allerdings auf englisch. Hier wird anschließend das R Paket `desplot`genutzt, um den Versuch in einem Feldplan darzustellen.
+
+# Drei Versuchsanlagen
+
+In dieser Übung sollen drei verschiedene Versuchsanlagen erstellt werden:
+
+-   Vollständig Randomisierte Anlage / Complete Randomized Design (**CRD**)
+-   Randomisierte Vollständige Blockanlage / Randomized Complete Block Design (**RCBD**)
+-   Spaltanlage / Split-Plot Design (**SPD**)
+
+# Ein Beispiel
+
+In einer Region, die bereits von der Zuckerrübenkrankheit Syndrome Basses Richesses (SBR) betroffen ist, soll ein Feldversuch durchgeführt werden. Es soll untersucht werden, ob es Sorten gibt, die weniger von der Krankheit befallen werden. Außerdem soll untersucht werden, ob die Bodenbearbeitung einen Einfluss auf den Befall hat.
+
+![https://www.lfl.bayern.de/ips/blattfruechte/339679](images/csm_strube_beratung_sbr_ruebe_6224f7d9c5.jpg){fig-align="center"}
+
+## 2-faktorieller Feldversuch
+
+Es ist also ein 2-faktorieller Feldversuch. Es sollen drei Sorten (S1, S2, S3) und zwei verschiedene Bodenbearbeitungen (B1, B2) getestet werden. Die beiden Faktoren werden hier definiert:
+
+```{r, Faktoren}
+# 3 Sorten
+Sorte   <- paste0("S", 1:3)  # S1 - S3
+n_Sorte <- n_distinct(Sorte) # 3
+
+# 2 Bodenbearbeitungen
+Boden   <- paste0("B", 1:2)  # B1 - B2
+n_Boden <- n_distinct(Boden) # 2
+```
+
+Die beiden Faktoren sollen kreuzklassifiziert untersucht werden, jede Sorte soll also mit jeder Bodenbearbeitung getestet werden. Um dieses Versuchsschema zu definieren, kann man die Funktion `expand,grid()` nutzen:
+
+```{r, Kreuzklassifikation}
+# Kreuzklassifikation: 3 Sorten x 2 Boden
+Behandlung <- expand.grid(Sorte = Sorte, 
+                          Boden = Boden) %>%
+  mutate(Behandlung = paste0(Sorte,"x", Boden)) %>% 
+  pull(Behandlung) # S1.B1 - S3.B2
+
+n_Behandlung <- n_distinct(Behandlung) # 3*2 = 6
+```
+
+Es wird festgelegt, dass der Versuch pro Behandlung 4 Wiederholungen enthalten soll:
+
+```{r, Wiederholungen}
+# Anzahl der Wiederholungen
+n_Wiederholungen <- 4
+```
+
+# CRD: 2 Faktoren
+
+Die erste Versuchsanlage ist die Vollständig Randomisierte Versuchsanlage (**CRD**). Die Behandlungen werden den Versuchseinheiten völlig uneingeschränkt und zufällig zugeordnet. Dieses Design ist sehr einfach in der Anlage und auch das statistische Modell für die Auswertung ist sehr einfach. Wenn die Bedinungen auf dem Feld jedoch nicht homogen sind, ist die statistische Teststärke reduziert.
+
+## Versuchsdesign
+
+Mit der Funktion `design.crd()` aus dem R Paket `agricolae`, kann die Versuchsanlage vollständig randomisiert erstellt werden. Für die Reproduzierbarkeit ist die Wahl des `seed =` notwendig, das den Zufallsgenerator in R definiert.
+
+```{r, Design_CRD}
+Design_CRD <- design.crd(trt   = Behandlung,
+                         r     = n_Wiederholungen,
+                         seed  = 1989,
+                         kinds = "Super-Duper")
+```
+
+## Feldpläne (Tabelle)
+
+Das Ergebnis `Design_CRD` ist eine sogenannte Liste und enthält in `Design_CRD$book` den Feldplan. Für die grafische Darstellung mit dem R Paket `desplot` muss die Tabelle noch angepasst werden:
+
+```{r, Feldplan_CRD}
+Feldplan_CRD <- Design_CRD %>% 
+  pluck("book") %>% 
+  as_tibble() %>% 
+  set_names(c("Parzelle", "Wiederholung", "Behandlung"))
+
+# Reihe und Spalte hinzufügen
+Feldplan_CRD <- Feldplan_CRD %>%
+  bind_cols(expand.grid(Reihe  = 1:(n_Sorte*n_Boden/2),
+                        Spalte = 1:(n_Wiederholungen*2)))
+```
+
+## Feldpläne (Abbildung)
+
+Mit der Funktion `ggdesplot()` aus dem R Paket `desplot` kann nun der Feldplan grafisch dargestellt werden:
+
+```{r, Plot_CRD}
+ggdesplot(Behandlung ~ Spalte + Reihe,
+          data      = Feldplan_CRD,
+          out1      = Parzelle, 
+          out1.gpar = list(col="grey60", lwd=1),
+          flip      = FALSE,
+          text      = Behandlung, 
+          col.text  = "white",
+          cex       = 1.3, 
+          shorten   = "no",
+          show.key  = FALSE,
+          main      = "") +
+  scale_fill_viridis_d()
+```
+
+# RCBD: 2 Faktoren
+
+Die zweite Versuchsanlage ist die Randomisierte Vollständige Blockanlage (**RCBD**). Diese Anlage ist sinnvoll, wenn auf dem Versuchsfeld keine homogenen Bedingungen vorliegen. Das Feld wird dann in Blöcke unterteilt, wobei die Bedingungen innerhalb der Blöcke möglichst homogen sind. Die Behandlungen werden innerhalb der Blöcke vollständig und zufällig zugeordnet. Das Design hat den Vorteil, dass Umweltgradienten zwischen Blöcken nicht in den Restfehler einfließen.
+
+## Versuchsdesign
+
+Mit der Funktion `design.ab()` aus dem R Paket `agricolae`, kann die RCBD Versuchsanlage erstellt werden. Für die Reproduzierbarkeit ist die Wahl des `seed =` notwendig, das den Zufallsgenerator in R definiert.
+
+```{r, Design_RCBD}
+Design_RCBD <- design.ab(trt    = c(n_Sorte, n_Boden),
+                         r      = n_Wiederholungen,
+                         design = "rcbd",
+                         seed   = 1989,
+                         kinds  = "Super-Duper")
+```
+
+## Feldpläne (Tabelle)
+
+Das Ergebnis `Design_RCBD` ist eine sogenannte Liste und enthält in `Design_RCBD$book` den Feldplan. Für die grafische Darstellung mit dem R Paket `desplot` muss die Tabelle noch angepasst werden:
+
+```{r, Feldplan_RCBD}
+Feldplan_RCBD <- Design_RCBD %>% 
+  pluck("book") %>% 
+  as_tibble() %>% 
+  set_names(c("Parzelle", "Block", "Sorte", "Boden"))
+
+# Reihe und Spalte hinzufügen
+# Block ist Wiederholung
+Feldplan_RCBD <- Feldplan_RCBD %>%
+  bind_cols(expand.grid(Reihe  = 1:(n_Sorte*n_Boden/2),
+                        Spalte = 1:(n_Wiederholungen*2))) %>% 
+  mutate(Sorte = paste0("S", Sorte),
+         Boden = paste0("B", Boden),
+         Behandlung = paste0(Sorte,"x", Boden))
+```
+
+## Feldpläne (Abbildung)
+
+Mit der Funktion `ggdesplot()` aus dem R Paket `desplot` kann nun der Feldplan grafisch dargestellt werden:
+
+```{r, Plot_RCBD}
+ggdesplot(Behandlung ~ Spalte + Reihe | Block,
+          data      = Feldplan_RCBD,
+          out1      = Block, 
+          out1.gpar = list(col="grey60", lwd=1),
+          flip      = FALSE,
+          text      = Behandlung, 
+          col.text  = "white",
+          cex       = 1.3, 
+          shorten   = "no",
+          show.key  = FALSE,
+          main      = "") +
+  scale_fill_viridis_d()
+```
+
+# SPD: 2 Faktoren
+
+Die dritte Versuchsanlage ist die Spaltanlage (**SPD**). Diese Anlage ist sinnvoll, wenn auf dem Versuchsfeld keine homogenen Bedingungen vorliegen und zusätzlich meist Rahmenbedingungen aus der Praxis vorliegen. Das Feld wird wie bei der RCBD-Anlage in Blöcke unterteilt, wobei die Bedingungen innerhalb der Blöcke möglichst homogen sind. Die Behandlungen werden innerhalb der Blöcke allerdings NICHT vollständig und zufällig zugeordnet. Bei der Spaltanlage gibt es zwei Randomisierungsschritte: Anordnung der Spalten innerhalb der Blöcke und der Parzellen innerhalb der Streifen.
+
+## Versuchsdesign
+
+Mit der Funktion `design.split()` aus dem R Paket `agricolae`, kann die Spaltanlage erstellt werden. Für die Reproduzierbarkeit ist die Wahl des `seed =` notwendig, das den Zufallsgenerator in R definiert.
+
+```{r, Design_SPD}
+Design_SPD <- design.split(trt1    = Boden,
+                           trt2    = Sorte,
+                           r      = n_Wiederholungen,
+                           seed   = 1989,
+                           kinds  = "Super-Duper")
+```
+
+## Feldpläne (Tabelle)
+
+Das Ergebnis `Design_SPD` ist eine sogenannte Liste und enthält in `Design_SPD$book` den Feldplan. Für die grafische Darstellung mit dem R Paket `desplot` muss die Tabelle noch angepasst werden:
+
+```{r, Feldplan_SPD}
+Feldplan_SPD <- Design_SPD %>% 
+  pluck("book") %>% 
+  as_tibble() %>% 
+  set_names(c("Streifen", "Parzelle", "Block", "Boden", "Sorte"))
+
+# Reihe und Spalte hinzufügen
+# Block ist Wiederholung
+# Parzelle ist Subplot
+# Streifen ist Main plot
+Feldplan_SPD <- Feldplan_SPD %>%
+  bind_cols(expand.grid(Reihe  = 1:(n_Sorte*n_Boden/2),
+                        Spalte = 1:(n_Wiederholungen*2))) %>% 
+  mutate(Behandlung = paste0(Sorte,"x", Boden))
+```
+
+## Feldpläne (Abbildung)
+
+Mit der Funktion `ggdesplot()` aus dem R Paket `desplot` kann nun der Feldplan grafisch dargestellt werden:
+
+```{r, Plot_SPD}
+ggdesplot(Behandlung ~ Spalte + Reihe | Block,
+          data      = Feldplan_SPD,
+          out1      = Block, 
+          out1.gpar = list(col="grey60", lwd=1),
+          flip      = FALSE,
+          text      = Behandlung, 
+          col.text  = "white",
+          cex       = 1.3, 
+          shorten   = "no",
+          show.key  = FALSE,
+          main      = "") +
+  scale_fill_viridis_d()
+```
+
+# R zitieren
+
+"All analyses were performed using R Statistical Software (version 4.2.0; R Core Team 2022)".
+
+Reference: R Core Team (2022). R: A language and environment for statistical computing. R Foundation for Statistical Computing, Vienna, Austria. URL https://www.R-project.org/.
+
+```{r, R-Zitieren}
+citation()
+version$version.string
+```
+
+```{r, Pakete-Zitieren}
+citation("tidyverse")
+citation("agricolae")
+citation("desplot")
+```
+
+# Session Info
+
+```{r, R-Session}
+sessionInfo()
+```
